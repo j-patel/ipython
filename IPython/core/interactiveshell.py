@@ -26,6 +26,7 @@ import traceback
 import types
 import subprocess
 import warnings
+import uuid
 from io import open as io_open
 
 from pickleshare import PickleShareDB
@@ -260,6 +261,21 @@ class InteractiveShell(SingletonConfigurable):
         help="Set the color scheme (NoColor, Neutral, Linux, or LightBG)."
     ).tag(config=True)
     debug = Bool(False).tag(config=True)
+    deep_reload = Bool(False, help=
+        """
+        **Deprecated**
+
+        Will be removed in IPython 6.0
+
+        Enable deep (recursive) reloading by default. IPython can use the
+        deep_reload module which reloads changes in modules recursively (it
+        replaces the reload() function, so you don't need to change anything to
+        use it). `deep_reload` forces a full reload of modules whose code may
+        have changed, which the default reload() function does not.  When
+        deep_reload is off, IPython will use the normal reload(), but
+        deep_reload will still be available as dreload().
+        """
+    ).tag(config=True)
     disable_failing_post_execute = Bool(False,
         help="Don't call post-execute functions that have failed in the past."
     ).tag(config=True)
@@ -297,7 +313,11 @@ class InteractiveShell(SingletonConfigurable):
     def _exiter_default(self):
         return ExitAutocall(self)
     # Monotonically increasing execution counter
-    execution_count = Integer(1)
+#test
+    execution_count = None
+    #execution_count = uuid.uuid4().hex
+    #execution_count = Integer(1)
+    #execution_count = 'a'
     filename = Unicode("<ipython console>")
     ipython_dir= Unicode('').tag(config=True) # Set to get_ipython_dir() in __init__
 
@@ -473,7 +493,10 @@ class InteractiveShell(SingletonConfigurable):
 
         # The following was in post_config_initialization
         self.init_inspector()
-        self.raw_input_original = input
+        if py3compat.PY3:
+            self.raw_input_original = input
+        else:
+            self.raw_input_original = raw_input
         self.init_completer()
         # TODO: init_io() needs to happen before init_traceback handlers
         # because the traceback handlers hardcode the stdout/stderr streams.
@@ -574,12 +597,10 @@ class InteractiveShell(SingletonConfigurable):
         except AttributeError:
             self.stdin_encoding = 'ascii'
 
-
-    @observe('colors')
-    def init_syntax_highlighting(self, changes=None):
+    def init_syntax_highlighting(self):
         # Python source parser/formatter for syntax highlighting
-        pyformat = PyColorize.Parser(style=self.colors, parent=self).format
-        self.pycolorize = lambda src: pyformat(src,'str')
+        pyformat = PyColorize.Parser().format
+        self.pycolorize = lambda src: pyformat(src,'str',self.colors)
 
     def refresh_style(self):
         # No-op here, used in subclass
@@ -1191,11 +1212,14 @@ class InteractiveShell(SingletonConfigurable):
         If new_session is True, a new history session will be opened.
         """
         # Clear histories
-        self.history_manager.reset(new_session)
+        #self.history_manager.reset(new_session)
         # Reset counter used to index all histories
         if new_session:
-            self.execution_count = 1
-
+            #self.execution_count = uuid.uuid4().hex
+            
+            #self.execution_count = 1
+            #self.execution_count = 'a'
+            pass
         # Flush cached output items
         if self.displayhook.do_full_cache:
             self.displayhook.flush()
@@ -1569,7 +1593,7 @@ class InteractiveShell(SingletonConfigurable):
 
     def init_traceback_handlers(self, custom_exceptions):
         # Syntax error handler.
-        self.SyntaxTB = ultratb.SyntaxTB(color_scheme='NoColor', parent=self)
+        self.SyntaxTB = ultratb.SyntaxTB(color_scheme='NoColor')
 
         # The interactive one is initialized with an offset, meaning we always
         # want to remove the topmost item in the traceback, which is our own
@@ -1578,7 +1602,7 @@ class InteractiveShell(SingletonConfigurable):
                                                      color_scheme='NoColor',
                                                      tb_offset = 1,
                                    check_cache=check_linecache_ipython,
-                                   debugger_cls=self.debugger_cls, parent=self)
+                                   debugger_cls=self.debugger_cls)
 
         # The instance will store a pointer to the system-wide exception hook,
         # so that runtime code (such as magics) can access it.  This is because
@@ -1905,6 +1929,7 @@ class InteractiveShell(SingletonConfigurable):
         self.Completer = IPCompleter(shell=self,
                                      namespace=self.user_ns,
                                      global_namespace=self.user_global_ns,
+                                     use_readline=False,
                                      parent=self,
                                      )
         self.configurables.append(self.Completer)
@@ -2385,7 +2410,9 @@ class InteractiveShell(SingletonConfigurable):
         out = {}
         user_ns = self.user_ns
         global_ns = self.user_global_ns
-        
+        #self.execution_count = expressions.get('cell_uuid')
+        #print("4")
+        #print(self.execution_count)
         for key, expr in iteritems(expressions):
             try:
                 value = self._format_user_obj(eval(expr, global_ns, user_ns))
@@ -2604,9 +2631,11 @@ class InteractiveShell(SingletonConfigurable):
         if silent:
             store_history = False
 
+        #print("run cell 1")
         if store_history:
+            #print(self.execution_count)
             result.execution_count = self.execution_count
-
+            #print("run cell 2")
         def error_before_exec(value):
             result.error_before_exec = value
             self.last_execution_succeeded = False
@@ -2645,12 +2674,19 @@ class InteractiveShell(SingletonConfigurable):
                                               cell, raw_cell)
         if not silent:
             self.logger.log(cell, raw_cell)
+            
+            #new_uuid = uuid.uuid4().hex
 
         # Display the exception if input processing failed.
         if preprocessing_exc_tuple is not None:
             self.showtraceback(preprocessing_exc_tuple)
             if store_history:
-                self.execution_count += 1
+#test
+                #self.execution_count = uuid.uuid4().hex
+                #self.execution_count = new_uuid
+                #self.execution_count += 1
+                #self.execution_count = chr(ord(self.execution_count) + 1)
+                pass
             return error_before_exec(preprocessing_exc_tuple[2])
 
         # Our own compiler remembers the __future__ environment. If we want to
@@ -2672,13 +2708,23 @@ class InteractiveShell(SingletonConfigurable):
                 except IndentationError as e:
                     self.showindentationerror()
                     if store_history:
-                        self.execution_count += 1
+#test
+                        #self.execution_count = uuid.uuid4().hex
+                        #self.execution_count = new_uuid
+                        #self.execution_count += 1
+                        #self.execution_count = chr(ord(self.execution_count) + 1)
+                        pass
                     return error_before_exec(e)
                 except (OverflowError, SyntaxError, ValueError, TypeError,
                         MemoryError) as e:
                     self.showsyntaxerror()
                     if store_history:
-                        self.execution_count += 1
+#test
+                        #self.execution_count = uuid.uuid4().hex
+                        #self.execution_count = new_uuid
+                        #self.execution_count += 1
+                        #self.execution_count = chr(ord(self.execution_count) + 1)
+                        pass
                     return error_before_exec(e)
 
                 # Apply AST transformations
@@ -2687,7 +2733,11 @@ class InteractiveShell(SingletonConfigurable):
                 except InputRejected as e:
                     self.showtraceback()
                     if store_history:
-                        self.execution_count += 1
+#test
+                        #self.execution_count = uuid.uuid4().hex
+                        #self.execution_count += 1
+                        #self.execution_count = chr(ord(self.execution_count) + 1)
+                        pass
                     return error_before_exec(e)
 
                 # Give the displayhook a reference to our ExecutionResult so it
@@ -2703,7 +2753,7 @@ class InteractiveShell(SingletonConfigurable):
 
                 # Reset this so later displayed values do not modify the
                 # ExecutionResult
-                self.displayhook.exec_result = None
+                #self.displayhook.exec_result = None
 
                 self.events.trigger('post_execute')
                 if not silent:
@@ -2714,7 +2764,10 @@ class InteractiveShell(SingletonConfigurable):
             # history output logging is enabled.
             self.history_manager.store_output(self.execution_count)
             # Each cell is a *single* input, regardless of how many lines it has
-            self.execution_count += 1
+#test
+            #self.execution_count = uuid.uuid4().hex
+                        #self.execution_count += 1
+                        #self.execution_count = chr(ord(self.execution_count) + 1)
 
         return result
     
@@ -2749,7 +2802,6 @@ class InteractiveShell(SingletonConfigurable):
             ast.fix_missing_locations(node)
         return node
                 
-
     def run_ast_nodes(self, nodelist, cell_name, interactivity='last_expr',
                         compiler=compile, result=None):
         """Run a sequence of AST nodes. The execution mode depends on the
@@ -2889,8 +2941,6 @@ class InteractiveShell(SingletonConfigurable):
     #-------------------------------------------------------------------------
     # Things related to GUI support and pylab
     #-------------------------------------------------------------------------
-
-    active_eventloop = None
 
     def enable_gui(self, gui=None):
         raise NotImplementedError('Implement enable_gui in a subclass')
