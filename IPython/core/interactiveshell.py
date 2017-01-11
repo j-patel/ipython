@@ -26,7 +26,6 @@ import traceback
 import types
 import subprocess
 import warnings
-import uuid
 from io import open as io_open
 
 from pickleshare import PickleShareDB
@@ -2599,6 +2598,14 @@ class InteractiveShell(SingletonConfigurable):
             warn('Unknown failure executing module: <%s>' % mod_name)
 
     def run_cell(self, raw_cell, store_history=False, silent=False, shell_futures=True):
+        #print("In run cell interactive")
+        #print(self.source)
+        self.user_ns['Out'] = execDict(self)
+        self.user_ns['Out'].update(self.history_manager.output_hist)
+        result = self.run_cell_code(raw_cell, False, store_history, silent, shell_futures)
+        return result
+        
+    def run_cell_code(self, raw_cell, dependent = False, store_history=False, silent=False, shell_futures=True):
         """Run a complete IPython cell.
 
         Parameters
@@ -2622,6 +2629,7 @@ class InteractiveShell(SingletonConfigurable):
         -------
         result : :class:`ExecutionResult`
         """
+        #print(dependent)
         result = ExecutionResult()
 
         if (not raw_cell) or raw_cell.isspace():
@@ -3278,3 +3286,21 @@ class InteractiveShellABC(with_metaclass(abc.ABCMeta, object)):
     """An abstract base class for InteractiveShell."""
 
 InteractiveShellABC.register(InteractiveShell)
+
+class execDict(dict):
+    def __init__(self, shell, *args, **kwargs):
+        dict.__init__(self, *args, **kwargs)
+        self._shell = shell
+        self._executed_cells = set()
+
+    def __getitem__(self, key):
+        self._executed_cells.clear()
+        self._executed_cells.add(key)
+        source = self._shell.source
+        code = str()
+        for i in source:
+            if(i['edited'] == True and i['cell_uuid'] in self._executed_cells):
+                code = self._shell.run_cell_code(str(i['source']), True)
+                return eval(str(code.result))
+        code = dict.__getitem__(self, key)
+        return eval(str(code))
