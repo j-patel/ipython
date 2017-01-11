@@ -785,9 +785,9 @@ class HistoryManager(HistoryAccessor):
                 self._writeout_input_cache(conn)
             except sqlite3.IntegrityError:
                 self.new_session(conn)
-                print("ERROR! Session/line number was not unique in",
-                      "database. History logging moved to new session",
-                                                self.session_number)
+#                print("ERROR! Session/line number was not unique in",
+#                      "database. History logging moved to new session",
+#                                                self.session_number)
                 try:
                     # Try writing to the new session. If this fails, don't
                     # recurse
