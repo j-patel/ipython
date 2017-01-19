@@ -3305,5 +3305,4 @@ class execDict(dict):
             if(result is None):
                 self.cellDict[key] = self._shell.displayhook.cell_result
                 result = self._shell.displayhook.cell_result
-        if(result!= ""):
-            return result
+        return result
