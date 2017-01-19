@@ -2598,14 +2598,12 @@ class InteractiveShell(SingletonConfigurable):
             warn('Unknown failure executing module: <%s>' % mod_name)
 
     def run_cell(self, raw_cell, store_history=False, silent=False, shell_futures=True):
-        #print("In run cell interactive")
-        #print(self.source)
         self.user_ns['Out'] = execDict(self)
         self.user_ns['Out'].update(self.history_manager.output_hist)
-        result = self.run_cell_code(raw_cell, False, store_history, silent, shell_futures)
+        result = self.run_cell_code(raw_cell, store_history, silent, shell_futures)
         return result
         
-    def run_cell_code(self, raw_cell, dependent = False, store_history=False, silent=False, shell_futures=True):
+    def run_cell_code(self, raw_cell, store_history=False, silent=False, shell_futures=True):
         """Run a complete IPython cell.
 
         Parameters
@@ -2639,11 +2637,10 @@ class InteractiveShell(SingletonConfigurable):
         if silent:
             store_history = False
 
-        #print("run cell 1")
         if store_history:
             #print(self.execution_count)
             result.execution_count = self.execution_count
-            #print("run cell 2")
+
         def error_before_exec(value):
             result.error_before_exec = value
             self.last_execution_succeeded = False
@@ -3292,15 +3289,21 @@ class execDict(dict):
         dict.__init__(self, *args, **kwargs)
         self._shell = shell
         self._executed_cells = set()
+        self.cellDict = {}
 
     def __getitem__(self, key):
-        self._executed_cells.clear()
         self._executed_cells.add(key)
         source = self._shell.source
-        code = str()
         for i in source:
-            if(i['edited'] == True and i['cell_uuid'] in self._executed_cells):
-                code = self._shell.run_cell_code(str(i['source']), True)
-                return eval(str(code.result))
-        code = dict.__getitem__(self, key)
-        return eval(str(code))
+            if(i['cell_uuid'] == key):
+                code = i['source']
+        if(key in self.cellDict and self.cellDict[key] is not None):
+            result = self.cellDict[key]
+        else:
+            code_obj = self._shell.run_cell_code(code, True)
+            result = code_obj.result
+            if(result is None):
+                self.cellDict[key] = self._shell.displayhook.cell_result
+                result = self._shell.displayhook.cell_result
+        if(result!= ""):
+            return result
