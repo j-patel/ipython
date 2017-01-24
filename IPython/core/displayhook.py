@@ -34,6 +34,7 @@ class DisplayHook(Configurable):
     exec_result = Instance('IPython.core.interactiveshell.ExecutionResult',
                            allow_none=True)
     cull_fraction = Float(0.2)
+    cell_result = None
 
     def __init__(self, shell=None, cache_size=1000, **kwargs):
         super(DisplayHook, self).__init__(shell=shell, **kwargs)
@@ -62,8 +63,9 @@ class DisplayHook(Configurable):
 
     @property
     def prompt_count(self):
-        return self.shell.execution_count
-
+        #return self.shell.execution_count
+        return self.shell.cell_uuid
+    
     #-------------------------------------------------------------------------
     # Methods used in __call__. Override these methods to modify the behavior
     # of the displayhook.
@@ -262,7 +264,9 @@ class DisplayHook(Configurable):
             if format_dict:
                 self.write_format_data(format_dict, md_dict)
                 self.log_output(format_dict)
-            self.finish_displayhook()
+            if(self.shell.cell_uuid == self.shell.execution_count):
+                self.finish_displayhook()
+            self.cell_result = result
 
     def cull_cache(self):
         """Output cache is full, cull the oldest entries"""
