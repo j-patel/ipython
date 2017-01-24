@@ -2598,8 +2598,35 @@ class InteractiveShell(SingletonConfigurable):
             warn('Unknown failure executing module: <%s>' % mod_name)
 
     def run_cell(self, raw_cell, store_history=False, silent=False, shell_futures=True):
+        """Calls `execDict` class.
+           user_ns['Out'] will be a modified dictionary as defined in `execDict` class and will be updated with the entries of output history
+           cell_uuid is initialized with the execution_count value.
+           For dependency execution, run_cell_code will be called.
+           
+           Parameters
+        ----------
+        raw_cell : str
+          The code (including IPython code such as %magic functions) to run.
+        store_history : bool
+          If True, the raw and translated cell will be stored in IPython's
+          history. For user code calling back into IPython's machinery, this
+          should be set to False.
+        silent : bool
+          If True, avoid side-effects, such as implicit displayhooks and
+          and logging.  silent=True forces store_history=False.
+        shell_futures : bool
+          If True, the code will share future statements with the interactive
+          shell. It will both be affected by previous __future__ imports, and
+          any __future__ imports in the code will affect the shell. If False,
+          __future__ imports are not shared in either direction
+          
+          Returns
+        -------
+        result : :class:`ExecutionResult`
+        """
         self.user_ns['Out'] = execDict(self)
         self.user_ns['Out'].update(self.history_manager.output_hist)
+        self.cell_uuid = self.execution_count
         result = self.run_cell_code(raw_cell, store_history, silent, shell_futures)
         return result
         
@@ -2627,9 +2654,7 @@ class InteractiveShell(SingletonConfigurable):
         -------
         result : :class:`ExecutionResult`
         """
-        #print(dependent)
         result = ExecutionResult()
-
         if (not raw_cell) or raw_cell.isspace():
             self.last_execution_succeeded = True
             return result
@@ -2638,9 +2663,9 @@ class InteractiveShell(SingletonConfigurable):
             store_history = False
 
         if store_history:
-            #print(self.execution_count)
-            result.execution_count = self.execution_count
-
+#            result.execution_count = self.execution_count
+            result.execution_count = self.cell_uuid
+    
         def error_before_exec(value):
             result.error_before_exec = value
             self.last_execution_succeeded = False
@@ -2675,7 +2700,9 @@ class InteractiveShell(SingletonConfigurable):
 
         # Store raw and processed history
         if store_history:
-            self.history_manager.store_inputs(self.execution_count,
+#            self.history_manager.store_inputs(self.execution_count,
+#                                              cell, raw_cell)
+            self.history_manager.store_inputs(self.cell_uuid,
                                               cell, raw_cell)
         if not silent:
             self.logger.log(cell, raw_cell)
@@ -2700,7 +2727,8 @@ class InteractiveShell(SingletonConfigurable):
         compiler = self.compile if shell_futures else CachingCompiler()
 
         with self.builtin_trap:
-            cell_name = self.compile.cache(cell, self.execution_count)
+#            cell_name = self.compile.cache(cell, self.execution_count)
+            cell_name = self.compile.cache(cell, self.cell_uuid)
 
             with self.display_trap:
                 # Compile to bytecode
@@ -2767,13 +2795,13 @@ class InteractiveShell(SingletonConfigurable):
         if store_history:
             # Write output to the database. Does nothing unless
             # history output logging is enabled.
-            self.history_manager.store_output(self.execution_count)
+#            self.history_manager.store_output(self.execution_count)
+            self.history_manager.store_output(self.cell_uuid)
             # Each cell is a *single* input, regardless of how many lines it has
 #test
             #self.execution_count = uuid.uuid4().hex
                         #self.execution_count += 1
                         #self.execution_count = chr(ord(self.execution_count) + 1)
-
         return result
     
     def transform_ast(self, node):
@@ -3285,6 +3313,7 @@ class InteractiveShellABC(with_metaclass(abc.ABCMeta, object)):
 InteractiveShellABC.register(InteractiveShell)
 
 class execDict(dict):
+    """This class is used to implement dependency execution."""
     def __init__(self, shell, *args, **kwargs):
         dict.__init__(self, *args, **kwargs)
         self._shell = shell
@@ -3294,6 +3323,8 @@ class execDict(dict):
     def __getitem__(self, key):
         self._executed_cells.add(key)
         source = self._shell.source
+        parent_uuid = self._shell.cell_uuid
+        self._shell.cell_uuid = key
         for i in source:
             if(i['cell_uuid'] == key):
                 code = i['source']
@@ -3305,4 +3336,5 @@ class execDict(dict):
             if(result is None):
                 self.cellDict[key] = self._shell.displayhook.cell_result
                 result = self._shell.displayhook.cell_result
+        self._shell.cell_uuid = parent_uuid
         return result
