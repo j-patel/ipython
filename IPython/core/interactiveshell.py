@@ -3334,7 +3334,7 @@ class execDict(dict):
             code_obj = self._shell.run_cell_code(code, True)
             result = code_obj.result
             if(result is None):
-                self.cellDict[key] = self._shell.displayhook.cell_result
                 result = self._shell.displayhook.cell_result
+            self.cellDict[key] = result
         self._shell.cell_uuid = parent_uuid
         return result
