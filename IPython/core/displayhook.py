@@ -118,7 +118,8 @@ class DisplayHook(Configurable):
         """
         # Use write, not print which adds an extra space.
         sys.stdout.write(self.shell.separate_out)
-        outprompt = 'Out[{}]: '.format(self.shell.execution_count)
+#        outprompt = 'Out[{}]: '.format(self.shell.execution_count)
+        outprompt = 'Out[{}]: '.format(self.shell.cell_uuid)
         if self.do_full_cache:
             sys.stdout.write(outprompt)
 
