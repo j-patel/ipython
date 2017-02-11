@@ -265,8 +265,7 @@ class DisplayHook(Configurable):
             if format_dict:
                 self.write_format_data(format_dict, md_dict)
                 self.log_output(format_dict)
-            if(self.shell.cell_uuid == self.shell.execution_count):
-                self.finish_displayhook()
+            self.finish_displayhook()
             self.cell_result = result
 
     def cull_cache(self):
