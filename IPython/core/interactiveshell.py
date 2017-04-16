@@ -313,7 +313,7 @@ class InteractiveShell(SingletonConfigurable):
         return ExitAutocall(self)
     # Monotonically increasing execution counter
 #test
-    execution_count = None
+    execution_count = ''
     #execution_count = uuid.uuid4().hex
     #execution_count = Integer(1)
     #execution_count = 'a'
@@ -2410,7 +2410,6 @@ class InteractiveShell(SingletonConfigurable):
         user_ns = self.user_ns
         global_ns = self.user_global_ns
         #self.execution_count = expressions.get('cell_uuid')
-        #print("4")
         #print(self.execution_count)
         for key, expr in iteritems(expressions):
             try:
@@ -2626,7 +2625,7 @@ class InteractiveShell(SingletonConfigurable):
         """
         self.user_ns['Out'] = execDict(self)
         self.user_ns['Out'].update(self.history_manager.output_hist)
-        self.cell_uuid = self.execution_count
+        self.set_cell_uuid(self.execution_count)
         result = self.run_cell_code(raw_cell, store_history, silent, shell_futures)
         return result
         
@@ -2654,6 +2653,12 @@ class InteractiveShell(SingletonConfigurable):
         -------
         result : :class:`ExecutionResult`
         """
+        sys.stdout.flush()
+        sys.stderr.flush()
+        self.displayhook.cell_result = None
+        sys.stdout.cell_uuid = self.cell_uuid
+        sys.stderr.cell_uuid = self.cell_uuid
+        self.display_pub_class.cell_uuid = self.cell_uuid
         result = ExecutionResult()
         if (not raw_cell) or raw_cell.isspace():
             self.last_execution_succeeded = True
@@ -2802,6 +2807,8 @@ class InteractiveShell(SingletonConfigurable):
             #self.execution_count = uuid.uuid4().hex
                         #self.execution_count += 1
                         #self.execution_count = chr(ord(self.execution_count) + 1)
+#        sys.stdout.cell_uuid = self.cell_uuid
+#        sys.stderr.cell_uuid = self.cell_uuid
         return result
     
     def transform_ast(self, node):
@@ -3305,7 +3312,9 @@ class InteractiveShell(SingletonConfigurable):
     # Overridden in terminal subclass to change prompts
     def switch_doctest_mode(self, mode):
         pass
-
+    
+    def set_cell_uuid(self, value):
+        self.cell_uuid = value
 
 class InteractiveShellABC(with_metaclass(abc.ABCMeta, object)):
     """An abstract base class for InteractiveShell."""
@@ -3317,24 +3326,40 @@ class execDict(dict):
     def __init__(self, shell, *args, **kwargs):
         dict.__init__(self, *args, **kwargs)
         self._shell = shell
-        self._executed_cells = set()
         self.cellDict = {}
+        self.code_obj = None
 
     def __getitem__(self, key):
-        self._executed_cells.add(key)
         source = self._shell.source
         parent_uuid = self._shell.cell_uuid
-        self._shell.cell_uuid = key
+        self._shell.set_cell_uuid(key)
+        flag = False
+        code = None
         for i in source:
             if(i['cell_uuid'] == key):
-                code = i['source']
-        if(key in self.cellDict and self.cellDict[key] is not None):
+                if(i['edited'] == False):
+                    flag = True
+                else:
+                    code = i['source']
+                    flag = False
+        if(key in self._shell.user_ns['_oh'] and flag == True):
+            result = self._shell.user_ns['_oh'][key]
+            self.cellDict[key] = result
+        elif(key in self.cellDict and self.cellDict[key] is not None):
             result = self.cellDict[key]
         else:
-            code_obj = self._shell.run_cell_code(code, True)
-            result = code_obj.result
-            if(result is None):
+            self.code_obj = self._shell.run_cell_code(code)
+            result = self.code_obj.result
+            if(result is None and hasattr(self._shell.displayhook, 'cell_uuid') and self._shell.displayhook.cell_uuid == self._shell.cell_uuid):
                 result = self._shell.displayhook.cell_result
             self.cellDict[key] = result
-        self._shell.cell_uuid = parent_uuid
+            self._shell.user_ns['_oh'][key] = result
+        self._shell.set_cell_uuid(parent_uuid)
+        sys.stderr.flush()
+        sys.stdout.flush()
+        sys.stderr.cell_uuid = parent_uuid
+        sys.stdout.cell_uuid = parent_uuid
+        self._shell.display_pub_class.cell_uuid = parent_uuid
+        if(self.cellDict[key] is None):
+            raise KeyError(key)
         return result
