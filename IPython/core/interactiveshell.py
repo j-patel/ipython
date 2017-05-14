@@ -517,6 +517,9 @@ class InteractiveShell(SingletonConfigurable):
         self.hooks.late_startup_hook()
         self.events.trigger('shell_initialized', self)
         atexit.register(self.atexit_operations)
+        self.parent_uuids = {}
+#        self.child_uuids = {}
+        self.leaf_dependency = set()
 
     def get_ipython(self):
         """Return the currently running IPython instance."""
@@ -2625,9 +2628,24 @@ class InteractiveShell(SingletonConfigurable):
         """
         self.user_ns['Out'] = execDict(self)
         self.user_ns['Out'].update(self.history_manager.output_hist)
-        self.set_cell_uuid(self.execution_count)
+        self.cell_uuid = self.execution_count
         result = self.run_cell_code(raw_cell, store_history, silent, shell_futures)
+#        print(self.parent_uuids)
+#        print("=========================================================================")
+#        print(self.child_uuids)
+#        if(self.execution_count in self.parent_uuids):
+#            print("You should execute following cell(s):")
+        self.leaf_dependency = set()
+        self.getAllLeafNodes(self.execution_count, self.leaf_dependency);
         return result
+        
+    def getAllLeafNodes(self, uuid, leafNodes):
+        if uuid in self.parent_uuids:
+            for key in self.parent_uuids[uuid]:
+                if key not in self.parent_uuids:
+                    leafNodes.add(key)
+                else:
+                    self.getAllLeafNodes(key, leafNodes)
         
     def run_cell_code(self, raw_cell, store_history=False, silent=False, shell_futures=True):
         """Run a complete IPython cell.
@@ -2653,12 +2671,9 @@ class InteractiveShell(SingletonConfigurable):
         -------
         result : :class:`ExecutionResult`
         """
-        sys.stdout.flush()
-        sys.stderr.flush()
-        self.displayhook.cell_result = None
-        sys.stdout.cell_uuid = self.cell_uuid
-        sys.stderr.cell_uuid = self.cell_uuid
-        self.display_pub_class.cell_uuid = self.cell_uuid
+        self.flush_streams(self.cell_uuid)
+        self.displayhook.cell_result = None  
+        
         result = ExecutionResult()
         if (not raw_cell) or raw_cell.isspace():
             self.last_execution_succeeded = True
@@ -3313,8 +3328,17 @@ class InteractiveShell(SingletonConfigurable):
     def switch_doctest_mode(self, mode):
         pass
     
-    def set_cell_uuid(self, value):
-        self.cell_uuid = value
+#    def set_cell_uuid(self, value):
+#        print("CHANGING UUID", value, file=sys.__stdout__)
+#        self.cell_uuid = value
+    
+    #flush streams and assign uuid as current cell uuid
+    def flush_streams(self, uuid):
+        sys.stderr.flush()
+        sys.stdout.flush()
+        sys.stderr.cell_uuid = uuid
+        sys.stdout.cell_uuid = uuid
+        self.display_pub_class.cell_uuid = uuid
 
 class InteractiveShellABC(with_metaclass(abc.ABCMeta, object)):
     """An abstract base class for InteractiveShell."""
@@ -3328,11 +3352,12 @@ class execDict(dict):
         self._shell = shell
         self.cellDict = {}
         self.code_obj = None
+#        self._shell.child_uuids = {}
 
     def __getitem__(self, key):
         source = self._shell.source
         parent_uuid = self._shell.cell_uuid
-        self._shell.set_cell_uuid(key)
+        self._shell.cell_uuid = key
         flag = False
         code = None
         for i in source:
@@ -3354,12 +3379,17 @@ class execDict(dict):
                 result = self._shell.displayhook.cell_result
             self.cellDict[key] = result
             self._shell.user_ns['_oh'][key] = result
-        self._shell.set_cell_uuid(parent_uuid)
-        sys.stderr.flush()
-        sys.stdout.flush()
-        sys.stderr.cell_uuid = parent_uuid
-        sys.stdout.cell_uuid = parent_uuid
-        self._shell.display_pub_class.cell_uuid = parent_uuid
+        if(self._shell.cell_uuid not in self._shell.parent_uuids):
+            self._shell.parent_uuids[self._shell.cell_uuid] = []
+        if(parent_uuid not in self._shell.parent_uuids[self._shell.cell_uuid]):
+            self._shell.parent_uuids[self._shell.cell_uuid].append(parent_uuid)
+        
+#        if(parent_uuid not in self._shell.child_uuids):
+#            self._shell.child_uuids[parent_uuid] = []
+#        if(self._shell.cell_uuid not in self._shell.child_uuids[parent_uuid]):
+#            self._shell.child_uuids[parent_uuid].append(self._shell.cell_uuid)
+        self._shell.cell_uuid = parent_uuid
+        self._shell.flush_streams(parent_uuid)
         if(self.cellDict[key] is None):
             raise KeyError(key)
         return result
