@@ -267,6 +267,7 @@ class DisplayHook(Configurable):
                 self.log_output(format_dict)
             self.finish_displayhook()
             self.cell_result = result
+            self.cell_uuid = self.shell.cell_uuid
 
     def cull_cache(self):
         """Output cache is full, cull the oldest entries"""
