@@ -311,12 +311,9 @@ class InteractiveShell(SingletonConfigurable):
     @default('exiter')
     def _exiter_default(self):
         return ExitAutocall(self)
-    # Monotonically increasing execution counter
-#test
+    
+    # Initialize the execution counter by null. Instead of monotonically increasing it. It will be preserved as it is received
     execution_count = ''
-    #execution_count = uuid.uuid4().hex
-    #execution_count = Integer(1)
-    #execution_count = 'a'
     filename = Unicode("<ipython console>")
     ipython_dir= Unicode('').tag(config=True) # Set to get_ipython_dir() in __init__
 
@@ -518,8 +515,8 @@ class InteractiveShell(SingletonConfigurable):
         self.events.trigger('shell_initialized', self)
         atexit.register(self.atexit_operations)
         self.parent_uuids = {}
-#        self.child_uuids = {}
-        self.leaf_dependency = set()
+        self.executed_cells = []
+        self.last_executed_cells = []
 
     def get_ipython(self):
         """Return the currently running IPython instance."""
@@ -2412,8 +2409,7 @@ class InteractiveShell(SingletonConfigurable):
         out = {}
         user_ns = self.user_ns
         global_ns = self.user_global_ns
-        #self.execution_count = expressions.get('cell_uuid')
-        #print(self.execution_count)
+        
         for key, expr in iteritems(expressions):
             try:
                 value = self._format_user_obj(eval(expr, global_ns, user_ns))
@@ -2604,6 +2600,7 @@ class InteractiveShell(SingletonConfigurable):
            user_ns['Out'] will be a modified dictionary as defined in `execDict` class and will be updated with the entries of output history
            cell_uuid is initialized with the execution_count value.
            For dependency execution, run_cell_code will be called.
+           downstream and upstream refers to the respective dependencies of the cells.
            
            Parameters
         ----------
@@ -2626,26 +2623,36 @@ class InteractiveShell(SingletonConfigurable):
         -------
         result : :class:`ExecutionResult`
         """
+        self.upstream = set()
+        downstream = set()
         self.user_ns['Out'] = execDict(self)
         self.user_ns['Out'].update(self.history_manager.output_hist)
         self.cell_uuid = self.execution_count
         result = self.run_cell_code(raw_cell, store_history, silent, shell_futures)
-#        print(self.parent_uuids)
-#        print("=========================================================================")
-#        print(self.child_uuids)
-#        if(self.execution_count in self.parent_uuids):
-#            print("You should execute following cell(s):")
-        self.leaf_dependency = set()
-        self.getAllLeafNodes(self.execution_count, self.leaf_dependency);
+        self.get_downstream(self.execution_count, downstream)
+        self.get_last_executed_cells(downstream)
         return result
         
-    def getAllLeafNodes(self, uuid, leafNodes):
+    def get_downstream(self, uuid, downstream):
+        """
+        Get the set of uuids as forward/downstream dependencies of the currenty executing cell.
+        """
         if uuid in self.parent_uuids:
             for key in self.parent_uuids[uuid]:
-                if key not in self.parent_uuids:
-                    leafNodes.add(key)
-                else:
-                    self.getAllLeafNodes(key, leafNodes)
+                downstream.add(key)
+                if key in self.parent_uuids:
+                    self.get_downstream(key, downstream)
+    
+    def get_last_executed_cells(self, downstream):
+        """
+        Get the list of uuids of the cells which are executed previously as forward dependencies of the currenty executing cell.
+        Last executed cell of the upstream will be the first in the list.
+        """
+        self.last_executed_cells = []
+        for uuid in self.executed_cells:
+            if uuid in downstream:
+                self.last_executed_cells.append(uuid)
+        self.last_executed_cells.reverse()
         
     def run_cell_code(self, raw_cell, store_history=False, silent=False, shell_futures=True):
         """Run a complete IPython cell.
@@ -2673,7 +2680,9 @@ class InteractiveShell(SingletonConfigurable):
         """
         self.flush_streams(self.cell_uuid)
         self.displayhook.cell_result = None  
-        
+        if self.execution_count in self.executed_cells:
+            self.executed_cells.remove(self.execution_count)
+        self.executed_cells.append(self.execution_count)
         result = ExecutionResult()
         if (not raw_cell) or raw_cell.isspace():
             self.last_execution_succeeded = True
@@ -2683,7 +2692,6 @@ class InteractiveShell(SingletonConfigurable):
             store_history = False
 
         if store_history:
-#            result.execution_count = self.execution_count
             result.execution_count = self.cell_uuid
     
         def error_before_exec(value):
@@ -2720,24 +2728,16 @@ class InteractiveShell(SingletonConfigurable):
 
         # Store raw and processed history
         if store_history:
-#            self.history_manager.store_inputs(self.execution_count,
-#                                              cell, raw_cell)
             self.history_manager.store_inputs(self.cell_uuid,
                                               cell, raw_cell)
         if not silent:
             self.logger.log(cell, raw_cell)
             
-            #new_uuid = uuid.uuid4().hex
-
         # Display the exception if input processing failed.
         if preprocessing_exc_tuple is not None:
             self.showtraceback(preprocessing_exc_tuple)
             if store_history:
-#test
-                #self.execution_count = uuid.uuid4().hex
-                #self.execution_count = new_uuid
-                #self.execution_count += 1
-                #self.execution_count = chr(ord(self.execution_count) + 1)
+                # Stop incrementing execution counter as it is being preserved and cell_uuid is being used for cell operations instead of that
                 pass
             return error_before_exec(preprocessing_exc_tuple[2])
 
@@ -2747,7 +2747,6 @@ class InteractiveShell(SingletonConfigurable):
         compiler = self.compile if shell_futures else CachingCompiler()
 
         with self.builtin_trap:
-#            cell_name = self.compile.cache(cell, self.execution_count)
             cell_name = self.compile.cache(cell, self.cell_uuid)
 
             with self.display_trap:
@@ -2761,22 +2760,14 @@ class InteractiveShell(SingletonConfigurable):
                 except IndentationError as e:
                     self.showindentationerror()
                     if store_history:
-#test
-                        #self.execution_count = uuid.uuid4().hex
-                        #self.execution_count = new_uuid
-                        #self.execution_count += 1
-                        #self.execution_count = chr(ord(self.execution_count) + 1)
+                        # Stop incrementing execution counter as it is being preserved and cell_uuid is being used for cell operations instead of that
                         pass
                     return error_before_exec(e)
                 except (OverflowError, SyntaxError, ValueError, TypeError,
                         MemoryError) as e:
                     self.showsyntaxerror()
                     if store_history:
-#test
-                        #self.execution_count = uuid.uuid4().hex
-                        #self.execution_count = new_uuid
-                        #self.execution_count += 1
-                        #self.execution_count = chr(ord(self.execution_count) + 1)
+                        # Stop incrementing execution counter as it is being preserved and cell_uuid is being used for cell operations instead of that
                         pass
                     return error_before_exec(e)
 
@@ -2786,10 +2777,7 @@ class InteractiveShell(SingletonConfigurable):
                 except InputRejected as e:
                     self.showtraceback()
                     if store_history:
-#test
-                        #self.execution_count = uuid.uuid4().hex
-                        #self.execution_count += 1
-                        #self.execution_count = chr(ord(self.execution_count) + 1)
+                        # Stop incrementing execution counter as it is being preserved and cell_uuid is being used for cell operations instead of that
                         pass
                     return error_before_exec(e)
 
@@ -2806,8 +2794,7 @@ class InteractiveShell(SingletonConfigurable):
 
                 # Reset this so later displayed values do not modify the
                 # ExecutionResult
-                #self.displayhook.exec_result = None
-
+                
                 self.events.trigger('post_execute')
                 if not silent:
                     self.events.trigger('post_run_cell')
@@ -2815,15 +2802,9 @@ class InteractiveShell(SingletonConfigurable):
         if store_history:
             # Write output to the database. Does nothing unless
             # history output logging is enabled.
-#            self.history_manager.store_output(self.execution_count)
             self.history_manager.store_output(self.cell_uuid)
             # Each cell is a *single* input, regardless of how many lines it has
-#test
-            #self.execution_count = uuid.uuid4().hex
-                        #self.execution_count += 1
-                        #self.execution_count = chr(ord(self.execution_count) + 1)
-#        sys.stdout.cell_uuid = self.cell_uuid
-#        sys.stderr.cell_uuid = self.cell_uuid
+            # Stop incrementing execution counter as it is being preserved and cell_uuid is being used for cell operations instead of that
         return result
     
     def transform_ast(self, node):
@@ -3328,10 +3309,6 @@ class InteractiveShell(SingletonConfigurable):
     def switch_doctest_mode(self, mode):
         pass
     
-#    def set_cell_uuid(self, value):
-#        print("CHANGING UUID", value, file=sys.__stdout__)
-#        self.cell_uuid = value
-    
     #flush streams and assign uuid as current cell uuid
     def flush_streams(self, uuid):
         sys.stderr.flush()
@@ -3346,18 +3323,24 @@ class InteractiveShellABC(with_metaclass(abc.ABCMeta, object)):
 InteractiveShellABC.register(InteractiveShell)
 
 class execDict(dict):
-    """This class is used to implement dependency execution."""
+    """
+    This class is used to implement dependency execution recursively.
+    The result of the cell is saved in cellDict upon execution. If it is saved, then the saved result will be used in case of executing the cell again.
+    If the code of the cell is updated after execution, then the saved result for that cell will be cleared and cell will be executed again.
+    The upstream and downstream dependencies of the cell are being saved, which will be displayed.
+    """
     def __init__(self, shell, *args, **kwargs):
         dict.__init__(self, *args, **kwargs)
         self._shell = shell
         self.cellDict = {}
         self.code_obj = None
-#        self._shell.child_uuids = {}
 
     def __getitem__(self, key):
         source = self._shell.source
         parent_uuid = self._shell.cell_uuid
         self._shell.cell_uuid = key
+        if key != self._shell.execution_count:
+            self._shell.upstream.add(key)
         flag = False
         code = None
         for i in source:
@@ -3380,16 +3363,12 @@ class execDict(dict):
             self.cellDict[key] = result
             self._shell.user_ns['_oh'][key] = result
         if(self._shell.cell_uuid not in self._shell.parent_uuids):
-            self._shell.parent_uuids[self._shell.cell_uuid] = []
-        if(parent_uuid not in self._shell.parent_uuids[self._shell.cell_uuid]):
-            self._shell.parent_uuids[self._shell.cell_uuid].append(parent_uuid)
-        
-#        if(parent_uuid not in self._shell.child_uuids):
-#            self._shell.child_uuids[parent_uuid] = []
-#        if(self._shell.cell_uuid not in self._shell.child_uuids[parent_uuid]):
-#            self._shell.child_uuids[parent_uuid].append(self._shell.cell_uuid)
+            self._shell.parent_uuids[self._shell.cell_uuid] = set()
+        self._shell.parent_uuids[self._shell.cell_uuid].add(parent_uuid)
+        print('"' + self._shell.cell_uuid + '" ->', '"'+ parent_uuid + '";', file=sys.__stdout__)
         self._shell.cell_uuid = parent_uuid
         self._shell.flush_streams(parent_uuid)
         if(self.cellDict[key] is None):
             raise KeyError(key)
         return result
+        
